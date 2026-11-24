@@ -1,0 +1,92 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: windows/go.mod
+          cache: false
+
+      - name: Rechnungen prüfen
+        run: node tests/core.test.js
+
+      - name: Oberfläche zusammenfügen
+        run: python3 tools/bundle.py
+
+      - name: Android-Werkzeuge
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-34" "build-tools;34.0.0" > /dev/null
+          echo "KASSE_BUILD_TOOLS=$ANDROID_HOME/build-tools/34.0.0" >> "$GITHUB_ENV"
+          echo "KASSE_PLATFORM=$ANDROID_HOME/platforms/android-34" >> "$GITHUB_ENV"
+
+      - name: Signierschlüssel
+        env:
+          SIGNING_STORE_B64: ${{ secrets.SIGNING_STORE_B64 }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          KS="$RUNNER_TEMP/kasse.jks"
+          if [ -n "$SIGNING_STORE_B64" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            printf '%s' "$SIGNING_STORE_B64" | base64 -d > "$KS"
+            echo "::add-mask::$ANDROID_KEY_PASSWORD"
+            echo "KASSE_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "SIGNED=true" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Secrets SIGNING_STORE_B64 und ANDROID_KEY_PASSWORD fehlen. Die APK wird nur mit einem Testschlüssel signiert, es gibt kein Release."
+            PW=$(openssl rand -hex 16)
+            keytool -genkeypair -keystore "$KS" -storetype PKCS12 -alias kasse -keyalg RSA -keysize 2048 \
+              -validity 30 -dname "CN=Test" -storepass "$PW" -keypass "$PW"
+            echo "KASSE_KEY_PASSWORD=$PW" >> "$GITHUB_ENV"
+            echo "SIGNED=false" >> "$GITHUB_ENV"
+          fi
+          echo "KASSE_KEYSTORE=$KS" >> "$GITHUB_ENV"
+
+      - name: APK bauen
+        run: tools/build_apk.sh
+
+      - name: Windows-Programm bauen
+        working-directory: windows
+        run: |
+          cp ../build/index.html .
+          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -H=windowsgui" -o ../build/Kasse.exe .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kasse-${{ github.sha }}
+          path: |
+            build/Kasse.apk
+            build/Kasse.exe
+
+      - name: Release veröffentlichen
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && env.SIGNED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(tr -d '[:space:]' < VERSION)
+          if gh release view "v$V" > /dev/null 2>&1; then
+            echo "Release v$V gibt es schon. Für ein neues Release VERSION erhöhen."
+          else
+            gh release create "v$V" build/Kasse.apk build/Kasse.exe \
+              --target "$GITHUB_SHA" --title "Kasse $V" --notes-file RELEASE_NOTES.md
+          fi

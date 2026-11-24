@@ -1,0 +1,8 @@
+build/
+windows/index.html
+*.apk
+*.exe
+*.jks
+*.keystore
+*.idsig
+node_modules/
