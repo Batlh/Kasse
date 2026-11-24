@@ -44,8 +44,7 @@ Neue Version veröffentlichen:
 
 Den Text eines vorhandenen Releases ändert der Workflow **Release-Text** (Actions → Release-Text → Run workflow) aus `docs/neu/<Version>.md`, ohne neu zu bauen.
 
-Der Build prüft den Fingerabdruck der Signatur. Zertifikat SHA-256:
-`E8:24:7D:3A:BE:50:9C:C1:3F:C4:1E:00:E7:73:AB:B5:54:6F:68:86:A0:4C:E0:D1:38:4E:98:75:8E:BF:F0:E8`
+Der Build prüft den SHA-256-Fingerabdruck des Signaturzertifikats.
 
 Für signierte Releases braucht das Repository zwei Secrets:
 
