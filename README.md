@@ -13,10 +13,10 @@ Kassenprogramm für private Veranstaltungen, für Android und Windows. Es läuft
 
 ## Herunterladen
 
-Die fertigen Dateien liegen unter [Releases](https://github.com/Batlh/kasse/releases):
+Die fertigen Dateien liegen unter [Releases](https://github.com/Batlh/kasse/releases). Jede Version hat ein eigenes Release mit den Änderungen, „Aktueller Stand“ enthält immer den neuesten Build.
 
-- **Kasse.apk** für Android 7 oder neuer. Beim Installieren muss „Apps aus unbekannten Quellen“ erlaubt sein.
-- **Kasse.exe** für Windows 10/11. Braucht Microsoft Edge oder Google Chrome als Fenster. Die Daten liegen in `Kasse-Daten.json` neben dem Programm, lege die EXE deshalb in einen eigenen Ordner.
+- **kasse-<Version>.apk** für Android 7 oder neuer. Beim Installieren muss „Apps aus unbekannten Quellen“ erlaubt sein.
+- **kasse-<Version>.exe** für Windows 10/11. Braucht Microsoft Edge oder Google Chrome als Fenster. Die Daten liegen in `Kasse-Daten.json` neben dem Programm, lege die EXE deshalb in einen eigenen Ordner.
 
 Auf Android speichert die App nach jedem Schritt im App-Speicher. Die Daten gehen nur verloren, wenn die App deinstalliert oder ihr Speicher gelöscht wird. Zwischendurch eine Sicherung zu speichern schadet trotzdem nicht.
 
@@ -34,7 +34,18 @@ Alle Beträge werden in ganzen Cent gerechnet. Bargeld und Bestände werden nie 
 
 ## Selbst bauen
 
-GitHub Actions baut bei jedem Push auf `main` die APK und die EXE. Steht in `VERSION` eine neue Versionsnummer, entsteht automatisch ein Release mit dem Text aus `RELEASE_NOTES.md`.
+GitHub Actions baut bei jedem Push auf `main` die APK und die EXE und ersetzt damit das Release „Aktueller Stand“.
+
+Neue Version veröffentlichen:
+
+1. Versionsnummer in `VERSION` erhöhen (Form `X.Y.Z`).
+2. Änderungen als Liste in `docs/neu/<Version>.md` schreiben, wichtigstes zuerst. Fehlt die Datei, nimmt das Release die Commit-Titel seit der Vorversion.
+3. Pushen. Der Build legt das Release `vX.Y.Z` mit „Stand vom …“, den Änderungen und den Dateien an.
+
+Den Text eines vorhandenen Releases ändert der Workflow **Release-Text** (Actions → Release-Text → Run workflow) aus `docs/neu/<Version>.md`, ohne neu zu bauen.
+
+Der Build prüft den Fingerabdruck der Signatur. Zertifikat SHA-256:
+`E8:24:7D:3A:BE:50:9C:C1:3F:C4:1E:00:E7:73:AB:B5:54:6F:68:86:A0:4C:E0:D1:38:4E:98:75:8E:BF:F0:E8`
 
 Für signierte Releases braucht das Repository zwei Secrets:
 

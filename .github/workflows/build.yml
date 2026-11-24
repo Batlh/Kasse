@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v7
         with:
@@ -65,28 +67,68 @@ jobs:
       - name: APK bauen
         run: tools/build_apk.sh
 
+      - name: Signatur prüfen
+        run: |
+          "$KASSE_BUILD_TOOLS/apksigner" verify --print-certs build/Kasse.apk | tee signatur.txt
+          # Mit Secret muss der eigene Schlüssel der Kasse drin sein (seit 1.5.0)
+          if [ "$SIGNED" = true ]; then
+            grep -qi "e8247d3abe509cc13fc41e00e773abb5546f6886a04ce0d1384e98758ebff0e8" signatur.txt
+          fi
+
       - name: Windows-Programm bauen
         working-directory: windows
         run: |
           cp ../build/index.html .
           GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -H=windowsgui" -o ../build/Kasse.exe .
 
+      - name: Dateinamen mit Version
+        run: |
+          V=$(tr -d '[:space:]' < VERSION)
+          echo "V=$V" >> "$GITHUB_ENV"
+          mkdir -p out
+          cp build/Kasse.apk "out/kasse-$V.apk"
+          cp build/Kasse.exe "out/kasse-$V.exe"
+
       - uses: actions/upload-artifact@v7
         with:
-          name: Kasse-${{ github.sha }}
-          path: |
-            build/Kasse.apk
-            build/Kasse.exe
+          name: kasse-${{ env.V }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 3
 
-      - name: Release veröffentlichen
+      - name: Aktueller Stand
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && env.SIGNED == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          V=$(tr -d '[:space:]' < VERSION)
+          # Jedes Mal neu am aktuellen Commit anlegen: steht dann oben, und der Quellcode passt zum Build
+          gh release delete latest --cleanup-tag -y > /dev/null 2>&1 || true
+          mkdir -p latest && cp build/Kasse.apk latest/kasse.apk && cp build/Kasse.exe latest/kasse.exe
+          gh release create latest --prerelease --target "$GITHUB_SHA" --title "Aktueller Stand" \
+            --notes "Wird bei jedem Build ersetzt. Version $V, Commit ${GITHUB_SHA:0:7}." latest/kasse.apk latest/kasse.exe
+
+      - name: Neue Version als eigenes Release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && env.SIGNED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Jede Version bekommt beim ersten Build ein eigenes Release vX.Y.Z mit den Änderungen seit der Vorversion
           if gh release view "v$V" > /dev/null 2>&1; then
-            echo "Release v$V gibt es schon. Für ein neues Release VERSION erhöhen."
-          else
-            gh release create "v$V" build/Kasse.apk build/Kasse.exe \
-              --target "$GITHUB_SHA" --title "Kasse $V" --notes-file RELEASE_NOTES.md
+            echo "Release v$V gibt es schon. Für ein neues Release VERSION erhöhen."; exit 0
           fi
+          prev=$(git log --format=%H -- VERSION | sed -n 2p)
+          {
+            echo "Stand vom $(date +%F) (Commit ${GITHUB_SHA:0:7})."
+            echo
+            echo "Änderungen seit der Vorversion:"
+            # Handgeschriebene Liste in docs/neu/<Version>.md, wichtigstes zuerst
+            if [ -f "docs/neu/$V.md" ]; then
+              cat "docs/neu/$V.md"
+            else
+              # Sonst die Commit-Titel ohne interne Einträge
+              git log --no-merges --format='- %s' ${prev:+$prev..}HEAD | sed 's/ *\[skip ci\]//' \
+                | grep -v -E '^- (Version|Versionsnummer|Planung|Tests?|CI|Build)\b' | head -40
+            fi
+          } > notes.md
+          gh release create "v$V" --target "$GITHUB_SHA" --title "Kasse $V" --notes-file notes.md \
+            --latest "out/kasse-$V.apk" "out/kasse-$V.exe"
